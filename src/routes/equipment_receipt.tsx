@@ -2,9 +2,7 @@ import React from 'react';
 
 function formatDateTime(value: string | null) {
     if (!value) return "N/A";
-
     const date = new Date(value);
-
     return date.toLocaleString("en-US", {
         month: "2-digit",
         day: "2-digit",
@@ -14,7 +12,6 @@ function formatDateTime(value: string | null) {
         hour12: true,
     });
 }
-
 
 interface EquipmentInterchangeReceiptProps {
   data: {
@@ -51,75 +48,123 @@ const EquipmentInterchangeReceipt: React.FC<EquipmentInterchangeReceiptProps> = 
   const getValue = (value: string | null | undefined) => (value ? value : 'N/A');
 
   return (
-    <div className="p-8 bg-white text-gray-800 font-sans max-w-3xl mx-auto border border-gray-300 shadow-md">
-      <h1 className="text-2xl font-bold text-center mb-6">Equipment Interchange Receipt</h1>
+    <>
+      <style>{`
+        @media print {
+          @page {
+            size: 80mm auto;
+            margin: 4mm;
+          }
+          body * { visibility: hidden; }
+          .receipt-root, .receipt-root * { visibility: visible; }
+          .receipt-root {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 80mm;
+          }
+          .no-print { display: none !important; }
+        }
+      `}</style>
 
-      <section className="mb-6">
-        <h2 className="text-lg font-bold border-b pb-2 mb-4"></h2>
-        <p>
-    <strong>Date & Time (Gate In):</strong> {formatDateTime(data.gate_in)}
-</p>
+      <div
+        className="receipt-root bg-white text-black mx-auto"
+        style={{
+          width: '80mm',
+          fontFamily: "'Courier New', Courier, monospace",
+          fontSize: '8px',
+          lineHeight: '1.2',
+          padding: '4px 6px',
+        }}
+      >
+        {/* Header */}
+        <div style={{ textAlign: 'center', marginBottom: '6px' }}>
+          <div style={{ fontWeight: 'bold', fontSize: '13px', letterSpacing: '0.5px' }}>
+            EQUIPMENT INTERCHANGE
+          </div>
+          <div style={{ fontWeight: 'bold', fontSize: '13px', letterSpacing: '0.5px' }}>
+            RECEIPT
+          </div>
+          <div style={{ borderTop: '1px dashed #000', marginTop: '4px', paddingTop: '4px', fontSize: '9px' }}>
+            TXN#: {getValue(data.transaction_nbr)}
+          </div>
+        </div>
 
-<p>
-    <strong>Date & Time (Gate Out):</strong> {formatDateTime(data.gate_out)}
-</p>
+        {/* Divider */}
+        <div style={{ borderTop: '1px dashed #000', marginBottom: '4px' }} />
 
+        {/* Row helper */}
+        {(() => {
+          const Row = ({ label, value }: { label: string; value: string }) => (
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px', gap: '4px' }}>
+              <span style={{ color: '#555', whiteSpace: 'nowrap', minWidth: '80px' }}>{label}:</span>
+              <span style={{ fontWeight: '600', textAlign: 'right', wordBreak: 'break-word' }}>{value}</span>
+            </div>
+          );
 
-     
-        <p><strong>Transaction Number:</strong> {getValue(data.transaction_nbr)}</p>
-        <p><strong>Location:</strong> {getValue(data.location)}</p>
-      {/* </section> */}
+          const Section = ({ title }: { title: string }) => (
+            <div style={{ fontWeight: 'bold', fontSize: '7px', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #ccc', marginTop: '3px', marginBottom: '2px', paddingBottom: '1px', color: '#333' }}>
+              {title}
+            </div>
+          );
 
-      {/* <section className="mb-6"> */}
-        {/* <h2 className="text-lg font-semibold border-b pb-2 mb-4">Container Information</h2> */}
-        <p><strong>Shipping Line:</strong> {getValue(data.shipping_line)}</p>
-        <p><strong>Container Number:</strong> {getValue(data.container_no)}</p>
-        <p><strong>Booking Number:</strong> {getValue(data.booking_no)}</p>
-        <p><strong>ISO Code:</strong> {getValue(data.iso_code)}</p>
-        <p><strong>Category:</strong> {getValue(data.category)}</p>
-      {/* </section> */}
+          return (
+            <>
+              <Section title="Gate Info" />
+              <Row label="Gate In"       value={formatDateTime(data.gate_in)} />
+              <Row label="Gate Out"      value={formatDateTime(data.gate_out)} />
+              <Row label="Location"      value={getValue(data.location)} />
 
-      {/* <section className="mb-6"> */}
-        {/* <h2 className="text-lg font-semibold border-b pb-2 mb-4">Seal & Reefer Details</h2> */}
-        <p><strong>Seal Number:</strong> {getValue(data.seal_no)}</p>
-        <p><strong>Reefer Requirement:</strong> {getValue(data.reefer_reqt)}</p>
-      {/* </section> */}
+              {/* <Section title="Container" /> */}
+              <Row label="Shipping Line" value={getValue(data.shipping_line)} />
+              <Row label="Container No"  value={getValue(data.container_no)} />
+              <Row label="Booking No"    value={getValue(data.booking_no)} />
+              <Row label="ISO Code"      value={getValue(data.iso_code)} />
+              <Row label="Category"      value={getValue(data.category)} />
+              <Row label="Seal No"       value={getValue(data.seal_no)} />
+              <Row label="Reefer REQT"   value={getValue(data.reefer_reqt)} />
 
-      {/* <section className="mb-6"> */}
-        {/* <h2 className="text-lg font-semibold border-b pb-2 mb-4">Transport & Driver Information</h2> */}
-        <p><strong>Transport Company:</strong> {getValue(data.transport_company)}</p>
-        <p><strong>Driver Name:</strong> {getValue(data.drivers_name)}</p>
-        <p><strong>Driver License:</strong> {getValue(data.driver_licence)}</p>
-        <p><strong>Plate Number:</strong> {getValue(data.plate_no)}</p>
-      {/* </section> */}
+              {/* <Section title="Transport" /> */}
+              <Row label="Company"       value={getValue(data.transport_company)} />
+              <Row label="Driver"        value={getValue(data.drivers_name)} />
+              <Row label="License"       value={getValue(data.driver_licence)} />
+              <Row label="Plate No"      value={getValue(data.plate_no)} />
+              <Row label="Move Type"     value={getValue(data.move_type)} />
+              <Row label="Entry Lane"    value={getValue(data.entry_lane)} />
+              <Row label="Exit Lane"     value={getValue(data.exit_lane)} />
 
-      {/* <section className="mb-6"> */}
-        {/* <h2 className="text-lg font-semibold border-b pb-2 mb-4">Movement Information</h2> */}
-        <p><strong>Move Type:</strong> {getValue(data.move_type)}</p>
-        <p><strong>Entry Lane:</strong> {getValue(data.entry_lane)}</p>
-        <p><strong>Exit Lane:</strong> {getValue(data.exit_lane)}</p>
-      {/* </section> */}
+              {/* <Section title="Inspection" /> */}
+              <Row label="MNR Status"    value={getValue(data.mnr_status)} />
+              <Row label="Damage Code"   value={getValue(data.damage_code)} />
+              <Row label="Notes"         value={getValue(data.inspection_notes)} />
+              <Row label="Inspector"     value={getValue(data.gate_inspector)} />
 
-      {/* <section className="mb-6"> */}
-        {/* <h2 className="text-lg font-semibold border-b pb-2 mb-4">Inspection & Condition</h2> */}
-        <p><strong>MNR Status:</strong> {getValue(data.mnr_status)}</p>
-        <p><strong>Damage Code(s):</strong> {getValue(data.damage_code)}</p>
-        <p><strong>Inspection Notes:</strong> {getValue(data.inspection_notes)}</p>
-        <p><strong>Gate Inspector:</strong> {getValue(data.gate_inspector)}</p>
-      {/* </section> */}
+              {/* <Section title="Weight" /> */}
+              <Row label="Gross"         value={`${getValue(data.gross_weight)} kg`} />
+              <Row label="Tare"          value={`${getValue(data.tare_weight)} kg`} />
+              <Row label="Net"           value={`${getValue(data.net_weight)} kg`} />
+              <Row label="VGM"           value={`${getValue(data.vgm_weight)} kg`} />
+            </>
+          );
+        })()}
 
-      {/* <section className="mb-6"> */}
-        {/* <h2 className="text-lg font-semibold border-b pb-2 mb-4">Weight Information</h2> */}
-        <p><strong>Gross Weight:</strong> {getValue(data.gross_weight)} kg</p>
-        <p><strong>Tare Weight:</strong> {getValue(data.tare_weight)} kg</p>
-        <p><strong>Net Weight:</strong> {getValue(data.net_weight)} kg</p>
-        <p><strong>VGM Weight:</strong> {getValue(data.vgm_weight)} kg</p>
-      </section>
+        {/* Divider */}
+        <div style={{ borderTop: '1px dashed #000', marginTop: '8px', marginBottom: '8px' }} />
 
-      <div className="mt-8">
-        <p className="text-center font-semibold">Driver Signature: ___________________________</p>
+        {/* Signature */}
+        <div style={{ textAlign: 'center', fontSize: '9px' }}>
+          <div>Driver Signature:</div>
+          <div style={{ borderBottom: '1px solid #000', margin: '12px 16px 4px' }} />
+          <div style={{ fontSize: '8px', color: '#666' }}>Sign above</div>
+        </div>
+
+        {/* Footer */}
+        <div style={{ borderTop: '1px dashed #000', marginTop: '8px', paddingTop: '4px', textAlign: 'center', fontSize: '8px', color: '#666' }}>
+          <div>Thank you</div>
+          <div style={{ marginTop: '2px' }}>{new Date().toLocaleString()}</div>
+        </div>
       </div>
-    </div>
+    </>
   );
 };
 

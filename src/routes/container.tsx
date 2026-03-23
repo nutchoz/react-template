@@ -1,4 +1,6 @@
 import { useRef, useEffect, useState } from 'react';
+import { Canvas } from '@react-three/fiber';
+import { OrbitControls, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import RequestHandler from '../lib/utilities/RequestHandler';
 
@@ -123,17 +125,132 @@ const SECTIONS_DATA: Section[] = [
     },
 ];
 
+const CUBE_WIDTH = 1;
+const CUBE_DEPTH = 1.5;
+const SPACING = 0.1;
+
+const heightColors = [
+    '#95A5A6', // Height 0 – Gray (empty)
+    '#3498DB', // Height 1 – Blue
+    '#28B463', // Height 2 – Green
+    '#F1C40F', // Height 3 – Yellow
+    '#E74C3C'  // Height 4 – Red
+];
+
+interface CubeProps {
+    row: number;
+    col: number;
+    cellHeight: number;
+    offsetX: number;
+    offsetZ: number;
+    isHighlighted: boolean;
+}
+
+function Cube({ row, col, cellHeight, offsetX, offsetZ, isHighlighted }: CubeProps) {
+    const meshRef = useRef<THREE.Mesh>(null);
+    const displayHeight = cellHeight === 0 ? 0.5 : cellHeight;
+    
+    const x = row * (CUBE_WIDTH + SPACING) - offsetX;
+    const z = col * (CUBE_DEPTH + SPACING) - offsetZ;
+    const y = displayHeight / 2;
+
+    return (
+        <mesh
+            ref={meshRef}
+            position={[x, y, z]}
+            userData={{ row, col, height: cellHeight }}
+        >
+            <boxGeometry args={[CUBE_WIDTH, displayHeight, CUBE_DEPTH]} />
+            <meshStandardMaterial
+                color={heightColors[cellHeight]}
+                transparent
+                opacity={isHighlighted ? 1 : (cellHeight === 0 ? 0.3 : 0.8)}
+                emissive={isHighlighted ? '#ff3300' : '#000000'}
+                emissiveIntensity={isHighlighted ? 0.5 : 0}
+            />
+        </mesh>
+    );
+}
+
+interface GridSceneProps {
+    sectionData: GridCell[][];
+    rowCount: number;
+    colCount: number;
+    highlightedRow: number | null;
+    highlightedCol: number | null;
+}
+
+function GridScene({ sectionData, rowCount, colCount, highlightedRow, highlightedCol }: GridSceneProps) {
+    const offsetX = (rowCount * (CUBE_WIDTH + SPACING)) / 2 - (CUBE_WIDTH + SPACING) / 2;
+    const offsetZ = (colCount * (CUBE_DEPTH + SPACING)) / 2 - (CUBE_DEPTH + SPACING) / 2;
+
+    return (
+        <>
+            <ambientLight intensity={0.7} />
+            <directionalLight position={[10, 10, 10]} intensity={0.8} />
+
+            {/* Grid Helper */}
+            <gridHelper args={[15, 12, 0x999999, 0xdddddd]} position={[0, 0, 0]} />
+
+            {Array.from({ length: rowCount }).map((_, i) => {
+                const x = i * (CUBE_WIDTH + SPACING) - offsetX;
+                return (
+                    <Text
+                        key={`row-${i}`}
+                        position={[x, 0.1, -8]}
+                        fontSize={0.5}
+                        color="#333333"
+                        anchorX="center"
+                        anchorY="middle"
+                    >
+                        R{i}
+                    </Text>
+                );
+            })}
+
+            {/* Column Labels */}
+            {Array.from({ length: colCount }).map((_, j) => {
+                const z = j * (CUBE_DEPTH + SPACING) - offsetZ;
+                return (
+                    <Text
+                        key={`col-${j}`}
+                        position={[-8, 0.1, z]}
+                        fontSize={0.5}
+                        color="#333333"
+                        anchorX="center"
+                        anchorY="middle"
+                    >
+                        C{j}
+                    </Text>
+                );
+            })}
+
+            {/* Grid Cubes */}
+            {sectionData.map((row, i) =>
+                row.map((cell, j) => (
+                    <Cube
+                        key={`${i}-${j}`}
+                        row={i}
+                        col={j}
+                        cellHeight={cell.height}
+                        offsetX={offsetX}
+                        offsetZ={offsetZ}
+                        isHighlighted={highlightedRow === i && highlightedCol === j}
+                    />
+                ))
+            )}
+        </>
+    );
+}
+
 export default function GridHighlighter() {
-    const mountRef = useRef<HTMLDivElement>(null);
     const [_, setIsLoading] = useState<boolean>(false);
-    const [recordsLocation, setRecordsLocation] = useState<any[]>([]);
+    const [, setRecordsLocation] = useState<any[]>([]);
     const [row, setRow] = useState<string>('');
     const [col, setCol] = useState<string>('');
     const [currentSection, setCurrentSection] = useState<number>(0);
-    const sceneRef = useRef<THREE.Scene | null>(null);
-    const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-    const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-    const cubesRef = useRef<THREE.Mesh[][]>([]);
+    const [highlightedRow, setHighlightedRow] = useState<number | null>(null);
+    const [highlightedCol, setHighlightedCol] = useState<number | null>(null);
 
     useEffect(() => {
         fetchRecords();
@@ -177,213 +294,6 @@ export default function GridHighlighter() {
         }
     };
 
-    useEffect(() => {
-        if (!mountRef.current) return;
-
-        const sectionData = SECTIONS_DATA[currentSection].gridData;
-        const rowCount = SECTIONS_DATA[currentSection].row;
-        const colCount = SECTIONS_DATA[currentSection].col;
-
-        const CUBE_WIDTH = 1;
-        const CUBE_DEPTH = 1.5;
-        const SPACING = 0.1;
-
-        const scene = new THREE.Scene();
-        sceneRef.current = scene;
-
-        const camera = new THREE.PerspectiveCamera(
-            75,
-            mountRef.current.clientWidth / mountRef.current.clientHeight,
-            0.1,
-            1000
-        );
-        camera.position.set(8, 8, 8);
-        camera.lookAt(0, 0, 0);
-        cameraRef.current = camera;
-
-        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setClearColor(0x000000, 0);
-        renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
-        mountRef.current.appendChild(renderer.domElement);
-        rendererRef.current = renderer;
-
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-        scene.add(ambientLight);
-
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(10, 10, 10);
-        scene.add(directionalLight);
-
-        const gridHelper = new THREE.GridHelper(15, 12, 0x999999, 0xdddddd);
-        gridHelper.position.y = 0;
-        scene.add(gridHelper);
-
-        const createTextLabel = (text: string, position: THREE.Vector3, rotation?: THREE.Euler) => {
-            const canvas = document.createElement('canvas');
-            const context = canvas.getContext('2d');
-            if (!context) return;
-
-            canvas.width = 256;
-            canvas.height = 128;
-            context.fillStyle = '#333333';
-            context.font = 'bold 60px Arial';
-            context.textAlign = 'center';
-            context.textBaseline = 'middle';
-            context.fillText(text, 128, 64);
-
-            const texture = new THREE.CanvasTexture(canvas);
-            const material = new THREE.SpriteMaterial({ map: texture });
-            const sprite = new THREE.Sprite(material);
-            sprite.position.copy(position);
-            sprite.scale.set(2, 1, 1);
-            if (rotation) sprite.rotation.copy(rotation);
-            scene.add(sprite);
-        };
-
-        // Row labels
-        for (let i = 0; i < rowCount; i++) {
-            const offsetX = (rowCount * (CUBE_WIDTH + SPACING)) / 2 - (CUBE_WIDTH + SPACING) / 2;
-            const x = i * (CUBE_WIDTH + SPACING) - offsetX;
-            createTextLabel(`R${i}`, new THREE.Vector3(x, 0.1, -8));
-        }
-
-        // Column labels
-        for (let j = 0; j < colCount; j++) {
-            const offsetZ = (colCount * (CUBE_DEPTH + SPACING)) / 2 - (CUBE_DEPTH + SPACING) / 2;
-            const z = j * (CUBE_DEPTH + SPACING) - offsetZ;
-            createTextLabel(`C${j}`, new THREE.Vector3(-8, 0.1, z));
-        }
-
-        cubesRef.current = [];
-        createGrid();
-
-        function createGrid() {
-            cubesRef.current.forEach((rowCubes: THREE.Mesh[]) => {
-                rowCubes.forEach((cube: THREE.Mesh) => {
-                    scene.remove(cube);
-                    cube.geometry.dispose();
-                    (cube.material as THREE.Material).dispose();
-                });
-            });
-
-            const cubes: THREE.Mesh[][] = [];
-            const offsetX = (rowCount * (CUBE_WIDTH + SPACING)) / 2 - (CUBE_WIDTH + SPACING) / 2;
-            const offsetZ = (colCount * (CUBE_DEPTH + SPACING)) / 2 - (CUBE_DEPTH + SPACING) / 2;
-
-            const heightColors = [
-                0x95A5A6, // Height 0 – Gray (empty)
-                0x3498DB, // Height 1 – Blue
-                0x28B463, // Height 2 – Green
-                0xF1C40F, // Height 3 – Yellow
-                0xE74C3C  // Height 4 – Red
-            ];
-
-            for (let i = 0; i < rowCount; i++) {
-                cubes[i] = [];
-                for (let j = 0; j < colCount; j++) {
-                    const cellHeight = sectionData[i][j].height;
-                    // Use minimum height of 0.5 for visual consistency, or actual height
-                    const displayHeight = cellHeight === 0 ? 0.5 : cellHeight;
-                    const geometry = new THREE.BoxGeometry(CUBE_WIDTH, displayHeight, CUBE_DEPTH);
-                    const material = new THREE.MeshStandardMaterial({
-                        color: heightColors[cellHeight],
-                        transparent: true,
-                        opacity: cellHeight === 0 ? 0.3 : 0.8,
-                    });
-                    const cube = new THREE.Mesh(geometry, material);
-
-                    cube.position.x = i * (CUBE_WIDTH + SPACING) - offsetX;
-                    cube.position.z = j * (CUBE_DEPTH + SPACING) - offsetZ;
-                    cube.position.y = displayHeight / 2;
-
-                    cube.userData = { row: i, col: j, height: cellHeight };
-
-                    scene.add(cube);
-                    cubes[i][j] = cube;
-                }
-            }
-            cubesRef.current = cubes;
-        }
-
-        let isDragging = false;
-        let previousMousePosition = { x: 0, y: 0 };
-        let cameraAngle = { theta: Math.PI / 4, phi: Math.PI / 4 };
-        const cameraDistance = 15;
-
-        const updateCameraPosition = () => {
-            camera.position.x = cameraDistance * Math.sin(cameraAngle.theta) * Math.cos(cameraAngle.phi);
-            camera.position.y = cameraDistance * Math.sin(cameraAngle.phi);
-            camera.position.z = cameraDistance * Math.cos(cameraAngle.theta) * Math.cos(cameraAngle.phi);
-            camera.lookAt(0, 0, 0);
-        };
-
-        const onMouseDown = (e: MouseEvent) => {
-            isDragging = true;
-            previousMousePosition = { x: e.clientX, y: e.clientY };
-        };
-
-        const onMouseMove = (e: MouseEvent) => {
-            if (isDragging) {
-                const deltaX = e.clientX - previousMousePosition.x;
-                const deltaY = e.clientY - previousMousePosition.y;
-
-                cameraAngle.theta += deltaX * 0.01;
-                cameraAngle.phi += deltaY * 0.01;
-
-                cameraAngle.phi = Math.max(0.1, Math.min(Math.PI - 0.1, cameraAngle.phi));
-
-                updateCameraPosition();
-
-                previousMousePosition = { x: e.clientX, y: e.clientY };
-            }
-        };
-
-        const onMouseUp = () => {
-            isDragging = false;
-        };
-
-        const onWheel = (e: WheelEvent) => {
-            e.preventDefault();
-            const zoomSpeed = 0.1;
-            const newDistance = cameraDistance + e.deltaY * zoomSpeed * 0.01;
-            const clampedDistance = Math.max(5, Math.min(30, newDistance));
-
-            camera.position.multiplyScalar(clampedDistance / camera.position.length());
-            camera.lookAt(0, 0, 0);
-        };
-
-        renderer.domElement.addEventListener('mousedown', onMouseDown);
-        renderer.domElement.addEventListener('mousemove', onMouseMove);
-        renderer.domElement.addEventListener('mouseup', onMouseUp);
-        renderer.domElement.addEventListener('wheel', onWheel);
-
-        const animate = () => {
-            requestAnimationFrame(animate);
-            renderer.render(scene, camera);
-        };
-        animate();
-
-        const handleResize = () => {
-            if (!mountRef.current) return;
-            camera.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
-        };
-        window.addEventListener('resize', handleResize);
-
-        return () => {
-            window.removeEventListener('resize', handleResize);
-            renderer.domElement.removeEventListener('mousedown', onMouseDown);
-            renderer.domElement.removeEventListener('mousemove', onMouseMove);
-            renderer.domElement.removeEventListener('mouseup', onMouseUp);
-            renderer.domElement.removeEventListener('wheel', onWheel);
-            if (mountRef.current && renderer.domElement) {
-                mountRef.current.removeChild(renderer.domElement);
-            }
-            renderer.dispose();
-        };
-    }, [currentSection, recordsLocation]);
-
     const handleHighlight = () => {
         const currentSectionData = SECTIONS_DATA[currentSection];
         const rowNum = parseInt(row);
@@ -393,43 +303,21 @@ export default function GridHighlighter() {
             alert(`Please enter valid row (0-${currentSectionData.row - 1}) and column (0-${currentSectionData.col - 1}) numbers`);
             return;
         }
-
-        cubesRef.current.forEach((rowCubes: THREE.Mesh[]) => {
-            rowCubes.forEach((cube: THREE.Mesh) => {
-                const material = cube.material as THREE.MeshStandardMaterial;
-                if (cube.userData.row === rowNum && cube.userData.col === colNum) {
-                    material.opacity = 1;
-                    material.emissive = new THREE.Color(0xff3300);
-                    material.emissiveIntensity = 0.5;
-                } else {
-                    material.opacity = 0.2;
-                    material.emissive = new THREE.Color(0x000000);
-                    material.emissiveIntensity = 0;
-                }
-            });
-        });
+        setHighlightedRow(rowNum);
+        setHighlightedCol(colNum);
     };
 
     const handleReset = () => {
-        cubesRef.current.forEach((rowCubes: THREE.Mesh[]) => {
-            rowCubes.forEach((cube: THREE.Mesh) => {
-                const material = cube.material as THREE.MeshStandardMaterial;
-                const cellHeight = cube.userData.height;
-                material.opacity = cellHeight === 0 ? 0.3 : 0.8;
-                material.emissive = new THREE.Color(0x000000);
-                material.emissiveIntensity = 0;
-            });
-        });
+        setHighlightedRow(null);
+        setHighlightedCol(null);
         setRow('');
         setCol('');
     };
 
     const currentSectionData = SECTIONS_DATA[currentSection];
-
     return (
         <div className="flex flex-1 h-[90vh] bg-gradient-to-br from-gray-100 to-gray-200">
             <div
-                ref={mountRef}
                 className="flex-1 mt-5 max-h-[85vh] bg-white shadow-inner"
                 style={{
                     backgroundImage: `
@@ -438,7 +326,27 @@ export default function GridHighlighter() {
                     `,
                     backgroundSize: '20px 20px'
                 }}
-            />
+            >
+                <Canvas
+                    camera={{ position: [8, 8, 8], fov: 75 }}
+                    gl={{ antialias: true, alpha: true }}
+                >
+                    <GridScene
+                        sectionData={currentSectionData.gridData}
+                        rowCount={currentSectionData.row}
+                        colCount={currentSectionData.col}
+                        highlightedRow={highlightedRow}
+                        highlightedCol={highlightedCol}
+                    />
+                    <OrbitControls
+                        enablePan={false}
+                        minDistance={5}
+                        maxDistance={30}
+                        maxPolarAngle={Math.PI - 0.1}
+                        minPolarAngle={0.1}
+                    />
+                </Canvas>
+            </div>
 
             <div className="w-[25%] bg-white shadow-2xl p-8 overflow-y-auto">
                 <h2 className="text-3xl font-bold text-gray-800 mb-8 border-b-4 border-orange-500 pb-3">
@@ -449,7 +357,7 @@ export default function GridHighlighter() {
                     <label className="block text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">
                         Section
                     </label>
-                    <div className="flex gap-3">
+                    <div className="flex gap-3 flex-wrap">
                         {SECTIONS_DATA.map((section, index) => (
                             <button
                                 key={section.id}
@@ -457,7 +365,7 @@ export default function GridHighlighter() {
                                     setCurrentSection(index);
                                     handleReset();
                                 }}
-                                className={`flex-1 py-3 rounded-xl font-semibold transition-all duration-300 shadow-md ${currentSection === index
+                                className={`flex-1 min-w-[60px] py-3 rounded-xl font-semibold transition-all duration-300 shadow-md ${currentSection === index
                                     ? 'bg-orange-500 text-white shadow-orange-300 scale-105'
                                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200 hover:shadow-lg'
                                     }`}
@@ -577,7 +485,6 @@ export default function GridHighlighter() {
                         </div>
                     </div>
                 </div>
-
             </div>
         </div>
     );

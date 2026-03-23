@@ -1,86 +1,230 @@
 import { useEffect, useState } from 'react';
-import { Search, Plus, X } from 'lucide-react';
+import { Plus, Calendar, DollarSign, MapPin, Hash, FileText, Weight, Shield, User, Truck, Package } from 'lucide-react';
 import RequestHandler from '../lib/utilities/RequestHandler';
 import EquipmentInterchangeReceipt from './equipment_receipt';
+import Swal from 'sweetalert2';
+import DynamicForm, { DynamicFormField } from '../components/form';
+import DataTable from '../components/table';
+import { useAuth } from '../lib/context/auth';
+
 
 const GateEntryManagement = () => {
     const [_, setIsLoading] = useState(false);
     const [records, setRecords] = useState<any>([]);
-    const [searchTerm, setSearchTerm] = useState('');
+    const [allEntries, setAllEntries] = useState<any>([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [selectedRecord, setSelectedRecord] = useState(null);
-    const [formData, setFormData] = useState({
-        gate_in: '',
-        location: '',
-        transaction_nbr: '',
-        shipping_line: '',
-        container_no: '',
-        booking_no: '',
-        category: '',
-        reefer_reqt: '',
-        seal_no: '',
-        iso_code: '',
-        driver_licence: '',
-        move_type: '',
-        transport_company: '',
-        drivers_name: '',
-        plate_no: '',
-        trans_creator: '',
-        gross_weight: '',
-        tare_weight: '',
-        net_weight: '',
-        entry_lane: '',
-        exit_lane: '',
-        mnr_status: '',
-        damage_code: '',
-        inspection_notes: '',
-        gate_inspector: '',
-        vgm_weight: ''
-    });
-
+    const [selectedRecord, setSelectedRecord] = useState<any>(null);
     const [isReportModalOpen, setIsReportModalOpen] = useState(false);
-    const [reportData, setReportData] = useState(null);
+    const [reportData, setReportData] = useState<any>(null);
+    const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+    const [backupData, setBackupData] = useState<any>(null);
+    const [editMode, setEditMode] = useState(false);
+    const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [initialFormValues, setInitialFormValues] = useState<Record<string, any>>({});
+    const { admin } = useAuth();
+    const [datalistOptions, setDatalistOptions] = useState<{
+        shipping_line: string[];
+        transport_company: string[];
+        drivers_name: string[];
+        plate_no: string[];
+        iso_code: string[];
+        category: string[];
+        gate_inspector: string[];
+        move_type: string[];
+        container_no: string[];
+        booking_no: string[];
+        seal_no: string[];
+        driver_licence: string[];
+        reefer_reqt: string[];
+        entry_lane: string[];
+        exit_lane: string[];
+        damage_code: string[];
+        trans_creator: string[];
+        block_location: string[];
+    }>({
+        shipping_line: [],
+        transport_company: [],
+        drivers_name: [],
+        plate_no: [],
+        iso_code: [],
+        category: [],
+        gate_inspector: [],
+        move_type: [],
+        container_no: [],
+        booking_no: [],
+        seal_no: [],
+        driver_licence: [],
+        reefer_reqt: [],
+        entry_lane: [],
+        exit_lane: [],
+        damage_code: [],
+        trans_creator: [],
+        block_location: [],
+    });
 
     const handleReportClick = (record: any) => {
         setReportData(record);
         setIsReportModalOpen(true);
     };
 
-    const filteredRecords = records.filter((record: any) =>
-        Object.values(record).some(value =>
-            String(value).toLowerCase().includes(searchTerm.toLowerCase())
-        )
-    );
+    const handleViewBackup = (record: any) => {
+        if (record.backup) {
+            setBackupData(record.backup);
+            setIsBackupModalOpen(true);
+        } else {
+            Swal.fire({
+                icon: 'info',
+                title: 'No Backup Available',
+                text: 'This record has no previous version saved.',
+                confirmButtonColor: '#0F172A'
+            });
+        }
+    };
+
+    const [shippingLineOptions, setShippingLineOptions] = useState<{ label: string; value: string }[]>([]);
+    const [transportCompanies, settransportCompanies] = useState<{ label: string; value: string }[]>([]);
+    const [driversOption, setDriversOption] = useState<{ label: string; value: string }[]>([]);
+    const [plateNumberOption, setPlateNumberOption] = useState<{ label: string; value: string }[]>([]);
+    const [driverLicenseMap, setDriverLicenseMap] = useState<Record<string, string>>({});
 
     useEffect(() => {
         fetchRecords();
+        fetchShippingLines();
+        fetchTransportCompany();
+        fetchDrivers();
+        fetchPlateNumber();
     }, []);
 
-    const getTodayDate = () => {
-        const today = new Date();
-        return today.toISOString().split('T')[0]; // YYYY-MM-DD
+    const fetchShippingLines = async () => {
+        const response = await RequestHandler.fetchData('GET', 'shipping-lines/get-all');
+        if (response?.success && response.shippingLines) {
+            setShippingLineOptions(
+                response.shippingLines
+                    .filter((s: any) => s.life_state === 'Active')
+                    .map((s: any) => ({ label: s.name, value: s.name }))
+            );
+        }
+    };
+
+    const fetchTransportCompany = async () => {
+        const response = await RequestHandler.fetchData('GET', 'transport-companies/get-all');
+        if (response?.success && response.transportCompanies) {
+            settransportCompanies(
+                response.transportCompanies
+                    .filter((s: any) => s.status === 'active')
+                    .map((s: any) => ({ label: s.name, value: s.name }))
+            );
+        }
+    };
+
+    const fetchDrivers = async () => {
+        const response = await RequestHandler.fetchData('GET', 'drivers/get-all');
+        if (response?.success && response.drivers) {
+            const active = response.drivers.filter((s: any) => s.status === 'active' && s.lifeState === 'active');
+            setDriversOption(active.map((s: any) => ({ label: s.name, value: s.name })));
+            const map: Record<string, string> = {};
+            active.forEach((s: any) => { map[s.name] = s.licenseNumber; });
+            setDriverLicenseMap(map);
+        }
+    };
+
+    const fetchPlateNumber = async () => {
+        const response = await RequestHandler.fetchData('GET', 'plate-numbers/get-all');
+        if (response?.success && response.plateNumbers) {
+            setPlateNumberOption(
+                response.plateNumbers
+                    .filter((s: any) => s.status === 'active')
+                    .map((s: any) => ({ label: s.plateNumber, value: s.plateNumber }))
+            );
+        }
     };
 
     useEffect(() => {
-        if (isModalOpen) {
-            setFormData(prev => ({
-                ...prev,
-                gate_in: getTodayDate()
-            }));
+        const source = allEntries.length > 0 ? allEntries : records;
+        if (source.length > 0) {
+            const extract = (key: string) =>
+                [...new Set(source.map((r: any) => r[key]).filter(Boolean))].sort() as string[];
+
+            const blockLocationOptions = [
+                ...new Set(
+                    source
+                        .filter((r: any) => r.block_location && r.row_location != null && r.col_location != null)
+                        .map((r: any) => `${r.block_location}-${r.row_location}-${r.col_location}`)
+                )
+            ].sort() as string[];
+
+            setDatalistOptions({
+                shipping_line:     extract('shipping_line'),
+                transport_company: extract('transport_company'),
+                drivers_name:      extract('drivers_name'),
+                plate_no:          extract('plate_no'),
+                iso_code:          extract('iso_code'),
+                category:          extract('category'),
+                gate_inspector:    extract('gate_inspector'),
+                move_type:         extract('move_type'),
+                container_no:      extract('container_no'),
+                booking_no:        extract('booking_no'),
+                seal_no:           extract('seal_no'),
+                driver_licence:    extract('driver_licence'),
+                reefer_reqt:       extract('reefer_reqt'),
+                entry_lane:        extract('entry_lane'),
+                exit_lane:         extract('exit_lane'),
+                damage_code:       extract('damage_code'),
+                trans_creator:     extract('trans_creator'),
+                block_location:    blockLocationOptions,
+            });
         }
-    }, [isModalOpen]);
+    }, [records, allEntries]);
+
+    const getTodayDateTime = () => {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        const hours = String(today.getHours()).padStart(2, '0');
+        const minutes = String(today.getMinutes()).padStart(2, '0');
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+    };
+
+    const parseBlockLocation = (value: string): { block: string; row: number; col: number } | null => {
+        const trimmed = value.trim();
+        const parts = trimmed.split('-');
+        if (parts.length !== 3) return null;
+        const [block, rowStr, colStr] = parts;
+        const row = Number(rowStr);
+        const col = Number(colStr);
+        if (!block || isNaN(row) || isNaN(col)) return null;
+        return { block: block.toUpperCase(), row, col };
+    };
+
+    const calculateNextElevation = (block: string, row: number, col: number, excludeId?: number): number => {
+        const matchingRecords = records.filter((r: any) =>
+            r.block_location === block.toUpperCase() &&
+            r.row_location === row &&
+            r.col_location === col &&
+            !r.gate_out &&
+            r.id !== excludeId
+        );
+        return matchingRecords.length + 1;
+    };
 
     const fetchRecords = async () => {
         setIsLoading(true);
         try {
             const response = await RequestHandler.fetchData('GET', 'gate-entry/get-all');
-            if (response && !response.success === false) {
-                setRecords(Array.isArray(response.gateEntries) ? response.gateEntries : []);
-                console.log('Fetched records:', response.gateEntries);
+            if (response && response.success !== false) {
+                const entries = Array.isArray(response.gateEntries) ? response.gateEntries : [];
+                setAllEntries(entries);
+                const realEntries = entries.filter((e: any) => e.trans_creator !== 'SHIPPING_LINE');
+                setRecords(realEntries);
+            } else {
+                setRecords([]);
             }
         } catch (error) {
             console.error('Error fetching records:', error);
-            alert('Failed to fetch records. Please try again.');
+            Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to fetch records.' });
+            setRecords([]);
         } finally {
             setIsLoading(false);
         }
@@ -90,34 +234,71 @@ const GateEntryManagement = () => {
         if (!dateString) return '';
         const date = new Date(dateString);
         return date.toLocaleString('en-US', {
-            month: '2-digit',
-            day: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
+            month: '2-digit', day: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit', hour12: true
         });
     };
 
-    const handleInputChange = (e: any) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({
-            ...prev, [name]: name === 'location'
-                ? value.toUpperCase()   // 👈 converts small → CAPITAL
-                : value
-        }));
+    const handleEdit = (record: any) => {
+        setEditMode(true);
+        setEditingRecordId(record.id);
+        const gateInDate = record.gate_in ? new Date(record.gate_in) : new Date();
+        const year = gateInDate.getFullYear();
+        const month = String(gateInDate.getMonth() + 1).padStart(2, '0');
+        const day = String(gateInDate.getDate()).padStart(2, '0');
+        const hours = String(gateInDate.getHours()).padStart(2, '0');
+        const minutes = String(gateInDate.getMinutes()).padStart(2, '0');
+        const blockLocationFull = `${record.block_location || 'XA'}-${record.row_location ?? 0}-${record.col_location ?? 0}`;
+
+        setInitialFormValues({
+            gate_in: `${year}-${month}-${day}T${hours}:${minutes}`,
+            block_location: blockLocationFull,
+            tier_location: record.tier_location || 1,
+            //  Only gate_in_payment_need is set upfront — gate out amount is entered at payment time
+            gate_in_payment_need: record.gate_in_payment_need || 0,
+            transaction_nbr: record.transaction_nbr || '',
+            shipping_line: record.shipping_line || '',
+            container_no: record.container_no || '',
+            booking_no: record.booking_no || '',
+            category: record.category || '',
+            reefer_reqt: record.reefer_reqt || '',
+            seal_no: record.seal_no || '',
+            iso_code: record.iso_code || '',
+            driver_licence: record.driver_licence || '',
+            move_type: record.move_type || '',
+            transport_company: record.transport_company || '',
+            drivers_name: record.drivers_name || '',
+            plate_no: record.plate_no || '',
+            trans_creator: record.trans_creator || '',
+            gross_weight: record.gross_weight || '',
+            tare_weight: record.tare_weight || '',
+            net_weight: record.net_weight || '',
+            entry_lane: record.entry_lane || '',
+            exit_lane: record.exit_lane || '',
+            mnr_status: record.mnr_status || 'OK',
+            damage_code: record.damage_code || '',
+            inspection_notes: record.inspection_notes || '',
+            gate_inspector: record.gate_inspector || '',
+            vgm_weight: record.vgm_weight || ''
+        });
+        setIsModalOpen(true);
     };
 
-    const resetForm = () => {
-        setFormData({
-            gate_in: '',
-            location: '',
-            transaction_nbr: '',
+    const handleAddNew = () => {
+        setEditMode(false);
+        setEditingRecordId(null);
+        setInitialFormValues({
+            gate_in: getTodayDateTime(),
+            block_location: 'XA-1-1',
+            tier_location: 1,
+            //  Only gate_in_payment_need here — gate out amount is set later in the payment tab
+            gate_in_payment_need: 0,
+            transaction_nbr: records.length > 0 ? `${String(records.length + 1).padStart(6, '0')}` : '000001',
             shipping_line: '',
             container_no: '',
             booking_no: '',
             category: '',
-            reefer_reqt: 'NO',
+            reefer_reqt: '',
             seal_no: '',
             iso_code: '',
             driver_licence: '',
@@ -125,7 +306,7 @@ const GateEntryManagement = () => {
             transport_company: '',
             drivers_name: '',
             plate_no: '',
-            trans_creator: 'SYSTEM',
+            trans_creator: '',
             gross_weight: '',
             tare_weight: '',
             net_weight: '',
@@ -137,104 +318,485 @@ const GateEntryManagement = () => {
             gate_inspector: '',
             vgm_weight: ''
         });
-        setEditMode(false);
+        setIsModalOpen(true);
     };
 
-    const [editMode, setEditMode] = useState(false);
-    const [__, setIsSubmitting] = useState(false);
+    const UPPERCASE_FIELDS = new Set([
+        // 'container_no', 'booking_no', 'seal_no', 'iso_code',
+        // 'block_location', 'trans_creator', 'damage_code',
+        // 'entry_lane', 'exit_lane', 'transaction_nbr', 'plate_no'
+        'container_no'
+    ]);
+    
+    const handleFieldChange = (name: string, value: any) => {
+        const normalizedValue = typeof value === 'string' && UPPERCASE_FIELDS.has(name)
+            ? value.toUpperCase()
+            : value;
+    
+        setInitialFormValues(prev => ({
+            ...prev,
+            [name]: normalizedValue,
+            ...(name === 'drivers_name' && driverLicenseMap[value]
+                ? { driver_licence: driverLicenseMap[value] }
+                : {}),
+        }));
+    };
 
-    const handleSubmit = async (e: any) => {
-        e.preventDefault();
+    const getFormFields = (): DynamicFormField[] => [
+        {
+            name: 'gate_in',
+            label: 'Gate In',
+            type: 'datetime-local',
+            icon: Calendar,
+            required: true,
+            disabled: editMode,
+            value: initialFormValues.gate_in,
+        },
+        {
+            //  Only gate in payment amount is set here
+            name: 'gate_in_payment_need',
+            label: 'Gate In Payment Required (₱)',
+            type: 'number',
+            icon: DollarSign,
+            required: false,
+            disabled: editMode,
+            value: initialFormValues.gate_in_payment_need,
+        },
+        //  payment_need (gate out) is REMOVED — admin enters it manually in the Gate Out Payment tab
+        {
+            name: 'block_location',
+            label: 'Block Location (e.g. XA-1-1)',
+            type: 'text',
+            icon: MapPin,
+            placeholder: 'XA-1-1',
+            required: true,
+            disabled: editMode,
+            value: initialFormValues.block_location,
+            datalist: datalistOptions.block_location,
+            validation: (value: any) => {
+                const parsed = parseBlockLocation(value);
+                if (!parsed) return 'Format must be BLOCK-ROW-COL (e.g. XA-1-1)';
+                return null;
+            },
+        },
+        {
+            name: 'transaction_nbr',
+            label: 'Transaction NBR',
+            type: 'text',
+            icon: Hash,
+            required: true,
+            disabled: true,
+            value: initialFormValues.transaction_nbr,
+        },
+        {
+            name: 'shipping_line',
+            label: 'Shipping Line',
+            type: 'select',
+            icon: Package,
+            required: true,
+            value: initialFormValues.shipping_line,
+            options: shippingLineOptions,
+        },
+        {
+            name: 'container_no',
+            label: 'Container No',
+            type: 'text',
+            icon: Package,
+            required: true,
+            value: initialFormValues.container_no,
+            datalist: datalistOptions.container_no,
+            validation: (value: any) => {
+                if (value.length !== 11) return 'Container number must be exactly 11 characters';
+                return null;
+            },
+        },
+        {
+            name: 'booking_no',
+            label: 'Booking No',
+            type: 'text',
+            icon: FileText,
+            value: initialFormValues.booking_no,
+            datalist: datalistOptions.booking_no,
+        },
+        {
+            name: 'category',
+            label: 'Category',
+            type: 'select',
+            options: [{ label: 'Storage', value: 'Storage' }],
+            icon: FileText,
+            required: true,
+            value: initialFormValues.category,
+        },
+        {
+            name: 'reefer_reqt',
+            label: 'Reefer REQT',
+            type: 'select',
+            options: [
+                { label: 'NO', value: 'NO' },
+                { label: 'YES', value: 'YES' },
+            ],
+            value: initialFormValues.reefer_reqt,
+        },
+        {
+            name: 'seal_no',
+            label: 'Seal No',
+            type: 'text',
+            icon: Shield,
+            value: initialFormValues.seal_no,
+            datalist: datalistOptions.seal_no,
+        },
+        {
+            name: 'iso_code',
+            label: 'ISO CODE',
+            type: 'text',
+            icon: Hash,
+            required: true,
+            value: initialFormValues.iso_code,
+            datalist: datalistOptions.iso_code,
+        },
+        {
+            name: 'drivers_name',
+            label: "Driver's Name",
+            type: 'select',
+            icon: User,
+            required: true,
+            value: initialFormValues.drivers_name,
+            options: driversOption,
+        },
+        {
+            name: 'driver_licence',
+            label: 'Driver License',
+            type: 'text',
+            icon: User,
+            disabled: true,
+            value: initialFormValues.driver_licence,
+            datalist: datalistOptions.driver_licence,
+        },
+        {
+            name: 'move_type',
+            label: 'Move Type',
+            icon: Truck,
+            type: 'select',
+            options: [
+                { label: 'Empty', value: 'Empty' },
+                { label: 'Laden', value: 'Laden' },
+            ],
+            required: true,
+            value: initialFormValues.move_type,
+        },
+        {
+            name: 'transport_company',
+            label: 'Transport Company',
+            type: 'select',
+            icon: Truck,
+            required: true,
+            value: initialFormValues.transport_company,
+            options: transportCompanies,
+        },
+        {
+            name: 'plate_no',
+            label: 'Plate No',
+            type: 'select',
+            icon: Truck,
+            required: true,
+            value: initialFormValues.plate_no,
+            options: plateNumberOption,
+        },
+        {
+            name: 'trans_creator',
+            label: 'Trans Creator',
+            type: 'text',
+            value: initialFormValues.trans_creator,
+            datalist: datalistOptions.trans_creator,
+        },
+        {
+            name: 'gross_weight',
+            label: 'Gross Weight (kg)',
+            type: 'number',
+            icon: Weight,
+            required: true,
+            min: 0,
+            value: initialFormValues.gross_weight,
+        },
+        {
+            name: 'tare_weight',
+            label: 'Tare Weight (kg)',
+            type: 'number',
+            icon: Weight,
+            required: true,
+            min: 0,
+            value: initialFormValues.tare_weight,
+        },
+        {
+            name: 'net_weight',
+            label: 'Net Weight (kg)',
+            type: 'number',
+            icon: Weight,
+            required: true,
+            min: 0,
+            value: initialFormValues.net_weight,
+        },
+        {
+            name: 'entry_lane',
+            label: 'Entry Lane',
+            type: 'text',
+            value: initialFormValues.entry_lane,
+            datalist: datalistOptions.entry_lane,
+        },
+        {
+            name: 'exit_lane',
+            label: 'Exit Lane',
+            type: 'text',
+            value: initialFormValues.exit_lane,
+            datalist: datalistOptions.exit_lane,
+        },
+        {
+            name: 'mnr_status',
+            label: 'MNR Status',
+            type: 'select',
+            options: [
+                { label: 'OK', value: 'OK' },
+                { label: 'Damaged', value: 'Damaged' },
+                { label: 'Repair Required', value: 'Repair Required' },
+            ],
+            value: initialFormValues.mnr_status,
+        },
+        {
+            name: 'damage_code',
+            label: 'Damage Code',
+            type: 'text',
+            value: initialFormValues.damage_code,
+            datalist: datalistOptions.damage_code,
+        },
+        {
+            name: 'inspection_notes',
+            label: 'Inspection Notes',
+            type: 'textarea',
+            rows: 3,
+            value: initialFormValues.inspection_notes,
+        },
+        {
+            name: 'gate_inspector',
+            label: 'Gate Inspector',
+            type: 'text',
+            icon: User,
+            value: initialFormValues.gate_inspector,
+            datalist: datalistOptions.gate_inspector,
+        },
+        {
+            name: 'vgm_weight',
+            label: 'VGM Weight (kg)',
+            type: 'number',
+            icon: Weight,
+            min: 0,
+            value: initialFormValues.vgm_weight,
+        },
+    ];
+
+    const handleFormSubmit = async (data: Record<string, any>) => {
         setIsSubmitting(true);
         try {
+            const parsed = parseBlockLocation(data.block_location);
+            if (!parsed) {
+                await Swal.fire({
+                    icon: 'error',
+                    title: 'Invalid Location Format',
+                    html: `<p>Block Location must be in <strong>BLOCK-ROW-COL</strong> format.</p><p class="text-sm mt-2">Example: <code>XA-1-1</code></p>`,
+                    confirmButtonColor: '#ef4444',
+                });
+                setIsSubmitting(false);
+                return;
+            }
+
+            const { block, row, col } = parsed;
+            const elevation = calculateNextElevation(block, row, col, editingRecordId || undefined);
+
+            if (elevation > 4) {
+                await Swal.fire({
+                    icon: 'warning',
+                    title: 'Location at Capacity',
+                    html: `<p>The location <strong>${block}-${row}-${col}</strong> already has 4 containers stacked.</p>`,
+                    confirmButtonText: 'OK',
+                    confirmButtonColor: '#ef4444',
+                });
+                setIsSubmitting(false);
+                return;
+            }
+
             const submitData = {
-                ...formData,
-                gate_in: new Date(formData.gate_in).toISOString(),
-                gross_weight: Number(formData.gross_weight),
-                tare_weight: Number(formData.tare_weight),
-                net_weight: Number(formData.net_weight),
-                vgm_weight: formData.vgm_weight ? Number(formData.vgm_weight) : null
+                ...data,
+                //  Only gate_in_payment_need is submitted — no payment_need
+                gate_in_payment_need: Number(data.gate_in_payment_need || 0),
+                gate_in: new Date(data.gate_in).toISOString(),
+                block_location: block,
+                row_location: row,
+                col_location: col,
+                tier_location: elevation,
+                gross_weight: Number(data.gross_weight),
+                tare_weight: Number(data.tare_weight),
+                net_weight: Number(data.net_weight),
+                vgm_weight: data.vgm_weight ? Number(data.vgm_weight) : null,
+                person_incharge: admin?.name || 'Unknown'
             };
 
-            let response = await RequestHandler.fetchData('POST', 'gate-entry/create', submitData);
-            if (response && !response.success === false) {
-                alert(editMode ? 'Entry updated successfully!' : 'Entry created successfully!');
+            let response;
+            if (editMode && editingRecordId) {
+                response = await RequestHandler.fetchData('PUT', `gate-entry/update/${editingRecordId}`, submitData);
+            } else {
+                response = await RequestHandler.fetchData('POST', 'gate-entry/create', submitData);
+            }
+
+            if (response && response.success !== false) {
+                await Swal.fire({
+                    icon: 'success',
+                    title: 'Success!',
+                    html: `<p>${editMode ? 'Entry updated!' : 'Entry created!'}</p><p class="text-sm mt-2">Location: <strong>${block}-${row}-${col}-${elevation}</strong></p>`,
+                    timer: 3000,
+                    showConfirmButton: false
+                });
                 setIsModalOpen(false);
-                resetForm();
+                setEditMode(false);
+                setEditingRecordId(null);
+                setInitialFormValues({});
                 fetchRecords();
             } else {
-                alert(response.message || 'Failed to save entry');
+                Swal.fire({ icon: 'error', title: 'Error', text: response.message || 'Failed to save entry' });
             }
         } catch (error) {
             console.error('Error submitting form:', error);
-            alert('Failed to save entry. Please try again.');
+            Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to save entry. Please try again.' });
         } finally {
             setIsSubmitting(false);
         }
     };
 
-    const DetailModal = ({ record, onClose }: { record: any; onClose: any }) => {
-        const [showGateOut, setShowGateOut] = useState(false);
-        const [gateOutForm, setGateOutForm] = useState('');
+    const handleFormCancel = () => {
+        setIsModalOpen(false);
+        setEditMode(false);
+        setEditingRecordId(null);
+        setInitialFormValues({});
+    };
 
-        const handleGateOut = async (e: any) => {
-            e.preventDefault();
-            setIsSubmitting(true);
-            try {
-                let response = await RequestHandler.fetchData('POST', 'gate-entry/gate-out', {
-                    id: record.id,
-                    gate_out: gateOutForm
-                });
-                if (response && !response.success === false) {
-                    setIsModalOpen(false);
-                    resetForm();
-                    fetchRecords();
-                    onClose();
-                } else {
-                    alert(response.message || 'Failed to save gate out');
-                }
-            } catch (error) {
-                console.error('Error submitting form:', error);
-                alert('Failed to gate out entry. Please try again.');
-            } finally {
-                setIsSubmitting(false);
+    const handleGateOut = async (record: any) => {
+        const result = await Swal.fire({
+            title: 'Confirm Gate Out',
+            html: `<p>Gate out this container?</p><p class="text-sm mt-2"><strong>Container:</strong> ${record.container_no}</p><p class="text-sm"><strong>Location:</strong> ${record.block_location}-${record.row_location}-${record.col_location}-${record.tier_location}</p>`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#10b981',
+            cancelButtonColor: '#6b7280',
+            confirmButtonText: 'Yes, Gate Out',
+        });
+        if (!result.isConfirmed) return;
+        setIsSubmitting(true);
+        try {
+            const response = await RequestHandler.fetchData('POST', 'gate-entry/gate-out', {
+                id: record.id,
+                gate_out: new Date().toISOString()
+            });
+            if (response && response.success !== false) {
+                await Swal.fire({ icon: 'success', title: 'Success!', text: 'Gate Out recorded!', timer: 2000, showConfirmButton: false });
+                setSelectedRecord(null); 
+                fetchRecords();
+            } else {
+                Swal.fire({ icon: 'error', title: 'Error', text: response.message || 'Failed to gate out' });
             }
-        };
+        } catch (error) {
+            Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to gate out. Please try again.' });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
 
+    const columns = [
+        {
+            key: 'gate_in', label: 'Gate In', sortable: true,
+            render: (value: any) => <div className="text-sm"><p className="font-semibold text-slate-800">{formatDate(value)}</p></div>,
+            exportRender: (value: any) => formatDate(value)
+        },
+        {
+            key: 'gate_out', label: 'Gate Out', sortable: true,
+            render: (value: any) => <span className="text-sm text-slate-800">{value ? formatDate(value) : 'N/A'}</span>,
+            exportRender: (value: any) => value ? formatDate(value) : 'N/A'
+        },
+        {
+            key: 'location', label: 'Location', sortable: true,
+            render: (_: any, row: any) => (
+                <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-sm font-mono font-semibold">
+                    {row.gate_out ? 'OUT' : `${row.block_location}-${row.row_location}-${row.col_location}-${row.tier_location}`}
+                </span>
+            ),
+            exportRender: (_: any, row: any) => row.gate_out ? 'OUT' : `${row.block_location}-${row.row_location}-${row.col_location}-${row.tier_location}`
+        },
+        {
+            key: 'person_incharge', label: "Person's Incharge", sortable: true,
+            render: (value: any) => (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold border border-indigo-200">
+                    <User size={12} />{value || '—'}
+                </span>
+            ),
+            exportRender: (value: any) => value || '—',
+        },
+        { key: 'container_no', label: 'Container No.', sortable: true, render: (value: any) => <p className="text-sm font-bold text-slate-800 font-mono">{value}</p> },
+        { key: 'transaction_nbr', label: 'Transaction NBR', sortable: true, render: (value: any) => <p className="text-sm text-slate-800">{value}</p> },
+        { key: 'shipping_line', label: 'Shipping Line', sortable: true, render: (value: any) => <p className="text-sm text-slate-800">{value}</p> },
+        { key: 'booking_no', label: 'Booking No', sortable: true, render: (value: any) => <p className="text-sm text-slate-800">{value}</p> },
+        { key: 'iso_code', label: 'ISO CODE', sortable: true, render: (value: any) => <p className="text-sm text-slate-800">{value}</p> },
+        { key: 'category', label: 'Category', sortable: true, filterable: true, render: (value: any) => <p className="text-sm text-slate-800">{value}</p> },
+        { key: 'transport_company', label: 'Transport Company', sortable: true, render: (value: any) => <p className="text-sm text-slate-800">{value}</p> },
+        { key: 'drivers_name', label: "Driver's Name", sortable: true, render: (value: any) => <p className="text-sm text-slate-800">{value}</p> },
+        { key: 'plate_no', label: 'Plate No', sortable: true, render: (value: any) => <p className="text-sm text-slate-800">{value}</p> },
+        {
+            key: 'mnr_status', label: 'MNR Status', sortable: true, filterable: true,
+            render: (value: any) => (
+                <span className={`px-3 py-1 rounded-full text-xs font-semibold ${value === 'OK' ? 'bg-emerald-100 text-emerald-800' : value === 'Damaged' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                    {value}
+                </span>
+            ),
+            exportRender: (value: any) => value
+        },
+        {
+            key: 'days_in_yard', label: 'Days in Yard', sortable: true,
+            render: (value: any) => <span className="text-sm text-slate-800">{value || 0} {value === 1 ? 'Day' : 'Days'}</span>,
+            exportRender: (value: any) => `${value || 0} ${value === 1 ? 'Day' : 'Days'}`
+        },
+        {
+            key: 'actions', label: 'Actions', sortable: false, filterable: false,
+            render: (_: any, row: any) => (
+                <div className="flex gap-2">
+                    {row.backup && (
+                        <button onClick={(e) => { e.stopPropagation(); handleViewBackup(row); }} className="px-3 py-1.5 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition text-sm font-semibold">Older</button>
+                    )}
+                    <button onClick={(e) => { e.stopPropagation(); handleReportClick(row); }} className="px-3 py-1.5 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition text-sm font-semibold">Report</button>
+                    {!row.gate_out && (
+                        <button onClick={(e) => { e.stopPropagation(); handleEdit(row); }} className="px-3 py-1.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition text-sm font-semibold">Records</button>
+                    )}
+                </div>
+            ),
+            exportRender: () => ''
+        }
+    ];
+
+    const DetailModal = ({ record, onClose }: { record: any; onClose: () => void }) => {
         if (!record) return null;
-
         return (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
                 <div className="bg-white rounded-lg p-8 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
                     <div className="flex justify-between items-center mb-6">
                         <h2 className="text-2xl font-bold">Truck Record Details</h2>
-                        <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
-                            <X size={24} />
-                        </button>
+                        {!record.gate_out && (
+                            <button onClick={(e) => { e.stopPropagation(); onClose(); handleEdit(record); }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition">Edit</button>
+                        )}
                     </div>
-
                     <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                            <span className="font-semibold">Gate In:</span>{" "}
-                            {formatDate(record.gate_in)}
-                        </div>
-
-                        {/* GATE OUT */}
+                        <div><span className="font-semibold">Gate In:</span> {formatDate(record.gate_in)}</div>
                         <div>
                             <span className="font-semibold">Gate Out:</span>{" "}
-                            {record.gate_out ? (
-                                formatDate(record.gate_out)
-                            ) : (
-                                <button
-                                    onClick={() => setShowGateOut(true)}
-                                    className="ml-2 text-blue-600 hover:underline"
-                                >
-                                    Gate Out
-                                </button>
+                            {record.gate_out ? formatDate(record.gate_out) : (
+                                <button onClick={() => handleGateOut(record)} className="ml-2 px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition">Gate Out Now</button>
                             )}
                         </div>
-
-                        <div><span className="font-semibold">Location:</span> {record.location}</div>
+                        <div><span className="font-semibold">Location:</span> {record.gate_out ? 'Out' : `${record.block_location}-${record.row_location}-${record.col_location}-${record.tier_location}`}<span className="ml-2 text-xs text-gray-500">(Block-Row-Col-Tier)</span></div>
                         <div><span className="font-semibold">Transaction NBR:</span> {record.transaction_nbr}</div>
                         <div><span className="font-semibold">Shipping Line:</span> {record.shipping_line}</div>
                         <div><span className="font-semibold">Container No:</span> {record.container_no}</div>
@@ -244,7 +806,7 @@ const GateEntryManagement = () => {
                         <div><span className="font-semibold">ISO CODE:</span> {record.iso_code}</div>
                         <div><span className="font-semibold">Category:</span> {record.category}</div>
                         <div><span className="font-semibold">Driver License:</span> {record.driver_licence}</div>
-                        <div><span className="font-semibold">Move:</span> {record.move_type}</div>
+                        <div><span className="font-semibold">Move Type:</span> {record.move_type}</div>
                         <div><span className="font-semibold">Transport Company:</span> {record.transport_company}</div>
                         <div><span className="font-semibold">Driver's Name:</span> {record.drivers_name}</div>
                         <div><span className="font-semibold">Plate No:</span> {record.plate_no}</div>
@@ -256,52 +818,75 @@ const GateEntryManagement = () => {
                         <div><span className="font-semibold">Exit Lane:</span> {record.exit_lane || 'N/A'}</div>
                         <div><span className="font-semibold">MNR Status:</span> {record.mnr_status}</div>
                         <div><span className="font-semibold">Damage Code:</span> {record.damage_code || 'None'}</div>
-                        <div className="col-span-2">
-                            <span className="font-semibold">Inspection Notes:</span>{" "}
-                            {record.inspection_notes || 'None'}
-                        </div>
+                        <div className="col-span-2"><span className="font-semibold">Inspection Notes:</span> {record.inspection_notes || 'None'}</div>
                         <div><span className="font-semibold">Gate Inspector:</span> {record.gate_inspector}</div>
-                        <div><span className="font-semibold">VGM Weight:</span> {record.vgm_weight} kg</div>
+                        <div><span className="font-semibold">VGM Weight:</span> {record.vgm_weight || 'N/A'} {record.vgm_weight ? 'kg' : ''}</div>
+                        <div><span className="font-semibold">Gate In Payment Required:</span> ₱{record.gate_in_payment_need?.toLocaleString() || '0'}</div>
+                        <div><span className="font-semibold">Days in Yard:</span> {record.days_in_yard || 0} {record.days_in_yard === 1 ? 'Day' : 'Days'}</div>
                     </div>
-
-                    {showGateOut && (
-                        <form onSubmit={handleGateOut} className="mt-6 border-t pt-4">
-                            <label className="block text-sm font-semibold mb-2">
-                                Gate Out Date & Time
-                            </label>
-                            <input
-                                type="datetime-local"
-                                value={gateOutForm}
-                                onChange={(e) => setGateOutForm(e.target.value)}
-                                required
-                                className="w-full border rounded px-3 py-2 mb-4"
-                            />
-
-                            <div className="flex justify-end gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setShowGateOut(false)}
-                                    className="px-4 py-2 border rounded"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="submit"
-                                    className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-                                >
-                                    Confirm Gate Out
-                                </button>
-                            </div>
-                        </form>
-                    )}
-
                     <div className="mt-6 flex justify-end">
-                        <button
-                            onClick={onClose}
-                            className="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
-                        >
-                            Close
-                        </button>
+                        <button onClick={onClose} className="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition">Close</button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    const BackupModal = ({ backup, onClose }: { backup: any; onClose: () => void }) => {
+        if (!backup) return null;
+        return (
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-2xl p-8 max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+                    <div className="flex justify-between items-center mb-6 pb-4 border-b-2 border-purple-200">
+                        <div>
+                            <h2 className="text-3xl font-bold text-purple-900">Previous Version</h2>
+                            <p className="text-sm text-purple-600 mt-1">Backup of the record before last modification</p>
+                        </div>
+                        <div className="bg-purple-100 px-4 py-2 rounded-lg">
+                            <span className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Historical Data</span>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                        {[
+                            ['Gate In', backup.gate_in ? formatDate(backup.gate_in) : 'N/A'],
+                            ['Gate Out', backup.gate_out ? formatDate(backup.gate_out) : 'N/A'],
+                            ['Location', backup.gate_out ? 'Out' : `${backup.block_location}-${backup.row_location}-${backup.col_location}-${backup.tier_location}`],
+                            ['Transaction NBR', backup.transaction_nbr],
+                            ['Shipping Line', backup.shipping_line],
+                            ['Container No', backup.container_no],
+                            ['Booking No', backup.booking_no],
+                            ['Reefer REQT', backup.reefer_reqt],
+                            ['Seal No', backup.seal_no],
+                            ['ISO CODE', backup.iso_code],
+                            ['Category', backup.category],
+                            ['Driver License', backup.driver_licence],
+                            ['Move Type', backup.move_type],
+                            ['Transport Company', backup.transport_company],
+                            ["Driver's Name", backup.drivers_name],
+                            ['Plate No', backup.plate_no],
+                            ['Trans Creator', backup.trans_creator],
+                            ['Gross Weight', `${backup.gross_weight} kg`],
+                            ['Tare Weight', `${backup.tare_weight} kg`],
+                            ['Net Weight', `${backup.net_weight} kg`],
+                            ['Entry Lane', backup.entry_lane],
+                            ['Exit Lane', backup.exit_lane || 'N/A'],
+                            ['MNR Status', backup.mnr_status],
+                            ['Damage Code', backup.damage_code || 'None'],
+                            ['Gate Inspector', backup.gate_inspector],
+                            ['VGM Weight', backup.vgm_weight ? `${backup.vgm_weight} kg` : 'N/A'],
+                        ].map(([label, value]) => (
+                            <div key={label} className="bg-purple-50 p-3 rounded-lg">
+                                <span className="font-semibold text-purple-900">{label}:</span>{' '}
+                                <span className="text-slate-700">{value}</span>
+                            </div>
+                        ))}
+                        <div className="col-span-2 bg-purple-50 p-3 rounded-lg">
+                            <span className="font-semibold text-purple-900">Inspection Notes:</span>{' '}
+                            <span className="text-slate-700">{backup.inspection_notes || 'None'}</span>
+                        </div>
+                    </div>
+                    <div className="mt-8 flex justify-end">
+                        <button onClick={onClose} className="px-6 py-3 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl font-bold hover:from-purple-700 hover:to-purple-800 transition-all shadow-lg">Close</button>
                     </div>
                 </div>
             </div>
@@ -309,455 +894,80 @@ const GateEntryManagement = () => {
     };
 
     return (
-        <div className="flex-1 p-6 overflow-y-auto">
-            {/* Search and Add Button */}
-
-            <div className="flex items-center space-x-4 mb-2">
-                <div className='flex justify-between w-full items-center bg-gray-300 p-3 rounded-lg'>
-                    <h2 className="text-2xl font-bold mb-4 text-blue-900">Truck Records</h2>
-                    <div className='flex gap-4'>
-                        <div className="relative flex-1 max-w-md">
-                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-                            <input
-                                type="text"
-                                placeholder="Search records..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                        </div>
-                        <button
-                            onClick={() => setIsModalOpen(true)}
-                            className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
-                        >
-                            <Plus size={20} />
-                            Add Entry
-                        </button>
-                        {/* <button
-                            onClick={() => setIsModalOpen(true)}
-                            className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition"
-                        >
-                            Report
-                        </button> */}
-                    </div>
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-8">
+            <div className="max-w-[75vw] mx-auto">
+                <div className="flex justify-between items-center mb-3">
+                    <h1 className="text-4xl font-black mb-3 bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-900 bg-clip-text text-transparent" style={{ fontFamily: "'Bebas Neue', sans-serif", letterSpacing: '0.02em' }}>
+                        Truck Records
+                    </h1>
+                    <button onClick={handleAddNew} className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-xl font-bold text-lg hover:from-blue-700 hover:to-indigo-800 transition-all shadow-lg hover:shadow-xl transform hover:scale-105">
+                        <Plus size={24} />
+                        Add Entry
+                    </button>
                 </div>
+                <DataTable
+                    columns={columns}
+                    data={records}
+                    title="Gate Entry Records"
+                    loading={_ as boolean}
+                    searchable={true}
+                    exportable={true}
+                    printable={true}
+                    pageSize={25}
+                    pageSizeOptions={[10, 25, 50, 100]}
+                    emptyMessage="No truck records found"
+                    onRowClick={(row) => setSelectedRecord(row)}
+                />
             </div>
 
-            <section>
-                <div className="bg-white rounded-lg shadow overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full">
-                            <thead>
-                                <tr className="bg-gradient-to-r from-blue-950 to-blue-700 text-white text-sm">
-                                    <th className="p-3 text-center text-xs">Gate In</th>
-                                    <th className="p-3 text-center text-xs">Gate Out</th>
-                                    <th className="p-3 text-center text-xs">Location</th>
-                                    <th className="p-3 text-center text-xs">Container No.</th>
-                                    <th className="p-3 text-center text-xs">Transaction NBR</th>
-                                    <th className="p-3 text-center text-xs">Shipping Line</th>
-                                    <th className="p-3 text-center text-xs">Booking No</th>
-                                    <th className="p-3 text-center text-xs">ISO CODE</th>
-                                    <th className="p-3 text-center text-xs">Category</th>
-                                    {/* <th className="p-3 text-center text-xs">Move</th> */}
-                                    <th className="p-3 text-center text-xs">Transport Company</th>
-                                    <th className="p-3 text-center text-xs">Driver's Name</th>
-                                    <th className="p-3 text-center text-xs">Plate No</th>
-                                    <th className="p-3 text-center text-xs">MNR Status</th>
-                                    <th className="p-3 text-center text-xs">Days in Yard</th>
-                                    <th className="p-3 text-center text-xs">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {filteredRecords.length > 0 ? (
-                                    filteredRecords.map((record: any) => (
-                                        <tr
-                                            key={record.id}
-                                            onClick={() => setSelectedRecord(record)}
-                                            className="cursor-pointer hover:bg-blue-100 transition text-sm"
-                                        >
-                                            <td className="p-2 border-r border-gray-200">{formatDate(record.gate_in)}</td>
-                                            <td className="p-2 border-r border-gray-200">{record.gate_out ? formatDate(record.gate_out) : 'N/A'}</td>
-                                            <td className="p-2 border-r border-gray-200">{record.location}</td>
-                                            <td className="p-2 border-r border-gray-200">{record.container_no}</td>
-                                            <td className="p-2 border-r border-gray-200">{record.transaction_nbr}</td>
-                                            <td className="p-2 border-r border-gray-200">{record.shipping_line}</td>
-                                            <td className="p-2 border-r border-gray-200">{record.booking_no}</td>
-                                            <td className="p-2 border-r border-gray-200">{record.iso_code}</td>
-                                            <td className="p-2 border-r border-gray-200">{record.category}</td>
-                                            {/* <td className="p-3 border-r border-gray-200">{record.move_type}</td> */}
-                                            <td className="p-2 border-r border-gray-200">{record.transport_company}</td>
-                                            <td className="p-2 border-r border-gray-200">{record.drivers_name}</td>
-                                            <td className="p-2 border-r border-gray-200">{record.plate_no}</td>
-                                            <td className="p-2 border-r border-gray-200">{record.mnr_status}</td>
-                                            <td className="p-2">{record.days_in_yard - 1} {record.days_in_yard === 1 ? 'Day' : 'Days'}</td>
-                                            <td className="p-2">
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleReportClick(record);
-                                                    }}
-                                                    className="p-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition"
-                                                >
-                                                    Report
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))
-                                ) : (
-                                    <tr>
-                                        <td colSpan={16} className="text-center p-8 text-gray-500">
-                                            No truck records found
-                                        </td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </section>
-
             {isModalOpen && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-gray-100 p-8 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-                        <h2 className="text-2xl font-bold mb-6 text-center">Truck Data Entry Form</h2>
-
-                        <form onSubmit={handleSubmit}>
-                            <div className="grid grid-cols-2 gap-4 mb-6">
-                                <div>
-                                    <label className="block mb-2 font-medium">Gate In: *</label>
-                                    <input
-                                        type="date"
-                                        name="gate_in"
-                                        min={getTodayDate()}
-                                        value={formData.gate_in}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">
-                                        Location (Block-Row-Bay-Tier): *
-                                    </label>
-                                    <input
-                                        type="text"
-                                        name="location"
-                                        value={formData.location}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                        placeholder="XA-1-1-1"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Transaction NBR: *</label>
-                                    <input
-                                        type="text"
-                                        name="transaction_nbr"
-                                        value={formData.transaction_nbr}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Shipping Line: *</label>
-                                    <input
-                                        type="text"
-                                        name="shipping_line"
-                                        value={formData.shipping_line}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Container No: *</label>
-                                    <input
-                                        type="text"
-                                        name="container_no"
-                                        value={formData.container_no}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                        maxLength={11}
-                                        minLength={11}
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Booking No: </label>
-                                    <input
-                                        type="text"
-                                        name="booking_no"
-                                        value={formData.booking_no}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Category: *</label>
-                                    <input
-                                        type="text"
-                                        name="category"
-                                        value={formData.category}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Reefer REQT:</label>
-                                    <input
-                                        type="text"
-                                        name="reefer_reqt"
-                                        value={formData.reefer_reqt}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Seal No:</label>
-                                    <input
-                                        type="text"
-                                        name="seal_no"
-                                        value={formData.seal_no}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">ISO CODE: *</label>
-                                    <input
-                                        type="text"
-                                        name="iso_code"
-                                        value={formData.iso_code}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Driver License:</label>
-                                    <input
-                                        type="text"
-                                        name="driver_licence"
-                                        value={formData.driver_licence}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Move: *</label>
-                                    <input
-                                        type="text"
-                                        name="move_type"
-                                        value={formData.move_type}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Transport Company: *</label>
-                                    <input
-                                        type="text"
-                                        name="transport_company"
-                                        value={formData.transport_company}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Driver's Name: *</label>
-                                    <input
-                                        type="text"
-                                        name="drivers_name"
-                                        value={formData.drivers_name}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Plate No: *</label>
-                                    <input
-                                        type="text"
-                                        name="plate_no"
-                                        value={formData.plate_no}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Trans Creator:</label>
-                                    <input
-                                        type="text"
-                                        name="trans_creator"
-                                        value={formData.trans_creator}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Gross Weight (kg): *</label>
-                                    <input
-                                        type="number"
-                                        name="gross_weight"
-                                        value={formData.gross_weight}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Tare Weight (kg): *</label>
-                                    <input
-                                        type="number"
-                                        name="tare_weight"
-                                        value={formData.tare_weight}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Net Weight (kg): *</label>
-                                    <input
-                                        type="number"
-                                        name="net_weight"
-                                        value={formData.net_weight}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Entry Lane:</label>
-                                    <input
-                                        type="text"
-                                        name="entry_lane"
-                                        value={formData.entry_lane}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Exit Lane:</label>
-                                    <input
-                                        type="text"
-                                        name="exit_lane"
-                                        value={formData.exit_lane}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">MNR Status:</label>
-                                    <input
-                                        type="text"
-                                        name="mnr_status"
-                                        value={formData.mnr_status}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Damage Code:</label>
-                                    <input
-                                        type="text"
-                                        name="damage_code"
-                                        value={formData.damage_code}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Inspection Notes:</label>
-                                    <input
-                                        type="text"
-                                        name="inspection_notes"
-                                        value={formData.inspection_notes}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">Gate Inspector:</label>
-                                    <input
-                                        type="text"
-                                        name="gate_inspector"
-                                        value={formData.gate_inspector}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block mb-2 font-medium">VGM Weight (kg):</label>
-                                    <input
-                                        type="number"
-                                        name="vgm_weight"
-                                        value={formData.vgm_weight}
-                                        onChange={handleInputChange}
-                                        className="w-full p-2 border border-gray-300 rounded"
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="flex justify-end gap-3">
-                                <button
-                                    type="button"
-                                    onClick={() => setIsModalOpen(false)}
-                                    className="px-6 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="submit"
-                                    className="px-6 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition"
-                                >
-                                    Submit
-                                </button>
-                            </div>
-                        </form>
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl p-8 w-full max-w-6xl max-h-[90vh] overflow-y-auto">
+                        <h2 className="text-3xl font-bold mb-6 text-center text-gray-900">{editMode ? 'Edit Truck Record' : 'Truck Data Entry Form'}</h2>
+                        <DynamicForm
+                            fields={getFormFields()}
+                            onSubmit={handleFormSubmit}
+                            onCancel={handleFormCancel}
+                            onFieldChange={handleFieldChange}
+                            submitLabel={editMode ? 'Update Entry' : 'Submit Entry'}
+                            cancelLabel="Cancel"
+                            showCancel={true}
+                            layout="grid"
+                            gridCols={2}
+                            loading={isSubmitting}
+                        />
                     </div>
                 </div>
             )}
 
             {isReportModalOpen && reportData && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg p-8 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-                        {/* <div className="flex justify-between items-center mb-6">                            
-                            <button onClick={() => setIsReportModalOpen(false)} className="text-gray-500 hover:text-gray-700">
-                                <X size={24} />
-                            </button>
-                        </div> */}
+                    <div className="bg-white rounded-lg p-4 max-w-sm w-full max-h-[90vh] overflow-y-auto">
                         <EquipmentInterchangeReceipt data={reportData} />
-                        <div className="mt-6 flex justify-end">
+                        <div className="mt-4 flex justify-end gap-2 no-print">
                             <button
-                                onClick={() => window.print()}
+                                onClick={() => {
+                                    const printContents = document.querySelector('.receipt-root')?.innerHTML;
+                                    if (!printContents) return;
+                                    const win = window.open('', '_blank', 'width=400,height=600');
+                                    if (!win) return;
+                                    win.document.write(`<html><head><title>Receipt</title><style>@page { size: 80mm auto; margin: 4mm; } body { margin: 0; font-family: 'Arial', Courier, monospace; font-size: 2px; width: 80mm; }</style></head><body>${printContents}</body></html>`);
+                                    win.document.close();
+                                    win.focus();
+                                    win.print();
+                                    win.close();
+                                }}
                                 className="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
-                            >
-                                Print
-                            </button>
-                            <button
-                                onClick={() => setIsReportModalOpen(false)}
-                                className="px-6 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition"
-                            >
-                                Close
-                            </button>
+                            >Print</button>
+                            <button onClick={() => setIsReportModalOpen(false)} className="px-6 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition">Close</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {selectedRecord && (
-                <DetailModal
-                    record={selectedRecord}
-                    onClose={() => setSelectedRecord(null)}
-                />
+            {selectedRecord && <DetailModal record={selectedRecord} onClose={() => setSelectedRecord(null)} />}
+            {isBackupModalOpen && backupData && (
+                <BackupModal backup={backupData} onClose={() => { setIsBackupModalOpen(false); setBackupData(null); }} />
             )}
         </div>
     );
