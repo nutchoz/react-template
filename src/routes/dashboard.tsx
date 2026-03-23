@@ -1,8 +1,7 @@
 
 export default function Dashboard() {
-
 	return (
-		<div className="w-[500px] h-[500px] bg-green-500">
+		<div className="flex-1 bg-gray-200">
 			TEST
 		</div>
 	);

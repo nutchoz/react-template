@@ -1,8 +1,7 @@
 export default class RequestHandler {
 	static development = import.meta.env.VITE_MODE === "development";
-	static baseURL = RequestHandler.development
-		? import.meta.env.VITE_DEVELOPMENT_URL
-		: import.meta.env.VITE_DEPLOYMENT_URL;
+	// static baseURL = "http://localhost:8888"
+	static baseURL = "https://cgt-system.netlify.app";
 
 	static apiLink = ".netlify/functions/api";
 
